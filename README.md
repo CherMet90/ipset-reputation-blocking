@@ -9,52 +9,16 @@
 ## Быстрый старт
 
 ```bash
-git clone https://github.com/CherMet90/ipset-reputation-block.git
-cd ipset-reputation-block
+cd ~
+git clone https://github.com/CherMet90/ipset-reputation-blocking.git
+cd ipset-reputation-blocking
 # Отредактируйте config.env под себя (порты, белый список)
+chmod +x install.sh
 sudo ./install.sh
 # После установки примените правила iptables (см. раздел "Интеграция iptables")
 ```
 
 **Важно:** `install.sh` **не изменяет iptables**. Он только устанавливает пакеты, создаёт ipset‑наборы, копирует скрипт обновления и прописывает cron. Правила вы добавляете вручную из файла `rules.v4` или адаптируете под свой текущий файрвол.
-
-## Что в проекте
-
-| Файл | Назначение |
-|------|------------|
-| `config.env` | Настройки: порты, белый список, размер ipset |
-| `update-blocklist.sh` | Загружает списки и атомарно подменяет ipset (основная логика) |
-| `rules.v4` | Эталонный блок правил iptables для ручной вставки |
-| `install.sh` | Установка пакетов, ipset, cron |
-| `uninstall.sh` | Полное удаление всего, что поставил `install.sh` (iptables не трогает) |
-
-## Настройка
-
-Перед установкой отредактируйте `config.env`:
-
-```bash
-PORTS="443"                     # Какие порты защищать
-WHITELIST="1.2.3.4 10.0.0.0/8"  # IP/подсети, которые никогда не блокируются
-MAXELEM=65536                   # Максимум записей в ipset
-```
-
-Если белый список не нужен, оставьте `WHITELIST=""`.
-
-## Установка
-
-```bash
-sudo ./install.sh
-```
-
-Что он делает (и только это):
-
-- Устанавливает пакеты `ipset` и `curl`.
-- Создаёт ipset‑набор `reputation_blocklist` (и опционально `whitelist`).
-- Копирует `update-blocklist.sh` в `/usr/local/sbin/` и прописывает симлинк в `/etc/cron.daily/`.
-- Запускает первичное наполнение списков (~26 000 записей).
-- **Не трогает** iptables‑правила.
-
-После установки все файлы живут в `/etc/reputation-block/`.
 
 ## Интеграция iptables
 
@@ -71,27 +35,31 @@ sudo netfilter-persistent save
 
 Вставьте блок из `rules.v4` в нужное место вручную.
 
-Суть правил (порядок критичен):
+Посмотреть правила с номерами строк:
 
-1. **Белый список** — пропускаем сразу.
-2. **Блокировка** — дропаем с логгированием только новых соединений.
-3. **Остальные** — ACCEPT.
-
-Для каждого порта:
-
-```
--A INPUT -p tcp --dport <PORT> -m set --match-set whitelist src -j ACCEPT
--A INPUT -p tcp --dport <PORT> -m set --match-set reputation_blocklist src -j BLOCKLIST_LOG_DROP
--A INPUT -p tcp --dport <PORT> -j ACCEPT
+```bash
+sudo iptables -L INPUT -n -v --line-numbers
+sudo iptables -L BLOCKLIST_LOG_DROP -n -v --line-numbers
 ```
 
-Цепочка `BLOCKLIST_LOG_DROP` (создаётся один раз):
+Заменить правило (например, отключить лимит для теста):
 
-```
--A BLOCKLIST_LOG_DROP -m conntrack --ctstate NEW -m limit --limit 1/min --limit-burst 5 -j LOG --log-prefix "IPTABLES-REPBLOCK: "
--A BLOCKLIST_LOG_DROP -j DROP
+```bash
+# синтаксис: -R <цепочка> <номер_строки> <новое правило>
+sudo iptables -R BLOCKLIST_LOG_DROP 1 -m conntrack --ctstate NEW -j LOG --log-prefix "IPTABLES-REPBLOCK: "
 ```
 
+Вставить правило на первое место:
+
+```bash
+sudo iptables -I BLOCKLIST_LOG_DROP 1 -j ... 
+```
+
+Удалить правило:
+
+```bash
+sudo iptables -D BLOCKLIST_LOG_DROP 1
+```
 Не забудьте сохранить:
 
 ```bash
@@ -119,6 +87,12 @@ sudo ipset add reputation_blocklist <YOUR_IP>
 # попробуйте подключиться к вашему серверу на защищённый порт
 sudo ipset del reputation_blocklist <YOUR_IP>
 sudo cat /var/log/iptables-repblock.log
+```
+
+- проверить крон
+
+```
+ls -la /etc/cron.daily/update-blocklist
 ```
 
 ## Обновление списков
