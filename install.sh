@@ -5,6 +5,19 @@ set -e
 [[ $EUID -ne 0 ]] && { echo "Run as root"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [[ ! -f "${SCRIPT_DIR}/config.env" ]]; then
+    if [[ -f "${SCRIPT_DIR}/config.env.example" ]]; then
+        echo ">>> config.env not found, copying from config.env.example..."
+        cp "${SCRIPT_DIR}/config.env.example" "${SCRIPT_DIR}/config.env"
+        echo ">>> Please edit config.env with your settings and re-run install.sh"
+        exit 0
+    else
+        echo ">>> config.env not found and no example available. Aborting."
+        exit 1
+    fi
+fi
+
 source "${SCRIPT_DIR}/config.env"
 
 IPSET_NAME="${IPSET_NAME:-reputation_blocklist}"
