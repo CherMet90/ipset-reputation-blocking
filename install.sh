@@ -35,6 +35,33 @@ cp -n "${SCRIPT_DIR}/config.env" "${INSTALL_DIR}/config.env" 2>/dev/null || true
 cp "${SCRIPT_DIR}/update-blocklist.sh" "${BIN_DIR}/update-blocklist.sh"
 chmod +x "${BIN_DIR}/update-blocklist.sh"
 
+echo ">>> Setting up rsyslog logging..."
+RSYSLOG_CONF="/etc/rsyslog.d/iptables-repblock.conf"
+tee "$RSYSLOG_CONF" <<'EOL' > /dev/null
+:msg, contains, "IPTABLES-REPBLOCK: " -/var/log/iptables-repblock.log
+& stop
+EOL
+touch /var/log/iptables-repblock.log
+chown syslog:adm /var/log/iptables-repblock.log 2>/dev/null || true
+chmod 640 /var/log/iptables-repblock.log
+systemctl restart rsyslog
+
+echo ">>> Setting up logrotate..."
+tee /etc/logrotate.d/iptables-repblock <<'EOL' > /dev/null
+/var/log/iptables-repblock.log {
+    rotate 7
+    daily
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate
+    endscript
+}
+EOL
+
 echo ">>> Creating ipset (if not exists)..."
 ipset create "$IPSET_NAME" hash:net hashsize "$HASHSIZE" maxelem "$MAXELEM" 2>/dev/null || true
 if [[ -n "$WHITELIST" ]]; then

@@ -12,58 +12,40 @@
 cd ~
 git clone https://github.com/CherMet90/ipset-reputation-blocking.git
 cd ipset-reputation-blocking
-# Отредактируйте config.env под себя (порты, белый список)
 chmod +x install.sh
 sudo ./install.sh
-# После установки примените правила iptables (см. раздел "Интеграция iptables")
 ```
 
-**Важно:** `install.sh` **не изменяет iptables**. Он только устанавливает пакеты, создаёт ipset‑наборы, копирует скрипт обновления и прописывает cron. Правила вы добавляете вручную из файла `rules.v4` или адаптируете под свой текущий файрвол.
+При первом запуске `install.sh` скопирует `config.env.example` → `config.env` и попросит отредактировать его под себя (порты, белый список IP). Откройте и настройте:
+
+```bash
+sudo nano config.env
+# или: sudo vi config.env
+```
+
+После правок запустите `install.sh` ещё раз:
+
+```bash
+sudo ./install.sh
+```
+
+Далее — примените правила iptables (см. раздел «Интеграция iptables»).
 
 ## Интеграция iptables
 
-### Если у вас пустой iptables
-
-Примените готовый шаблон:
-
-```bash
-sudo iptables-restore < rules.v4
-sudo netfilter-persistent save
+Цепочка логгирования дропов (создаётся один раз)
+```
+sudo iptables -N BLOCKLIST_LOG_DROP
+sudo iptables -A BLOCKLIST_LOG_DROP -m conntrack --ctstate NEW -m limit --limit 1/min --limit-burst 5 -j LOG --log-prefix "IPTABLES-REPBLOCK: " --log-level 4
+sudo iptables -A BLOCKLIST_LOG_DROP -j DROP
 ```
 
-### Если у вас уже есть правила
-
-Вставьте блок из `rules.v4` в нужное место вручную.
-
-Посмотреть правила с номерами строк:
-
-```bash
-sudo iptables -L INPUT -n -v --line-numbers
-sudo iptables -L BLOCKLIST_LOG_DROP -n -v --line-numbers
+Правила INPUT
+Пример для порта 443:
 ```
-
-Заменить правило (например, отключить лимит для теста):
-
-```bash
-# синтаксис: -R <цепочка> <номер_строки> <новое правило>
-sudo iptables -R BLOCKLIST_LOG_DROP 1 -m conntrack --ctstate NEW -j LOG --log-prefix "IPTABLES-REPBLOCK: "
-```
-
-Вставить правило на первое место:
-
-```bash
-sudo iptables -I BLOCKLIST_LOG_DROP 1 -j ... 
-```
-
-Удалить правило:
-
-```bash
-sudo iptables -D BLOCKLIST_LOG_DROP 1
-```
-Не забудьте сохранить:
-
-```bash
-sudo netfilter-persistent save
+sudo iptables -A INPUT -m set --match-set whitelist src -j ACCEPT
+sudo iptables -A INPUT -m set --match-set reputation_blocklist src -j BLOCKLIST_LOG_DROP
+sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
 ```
 
 ## Логирование
